@@ -20,6 +20,15 @@ const icon = {
   user: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>',
 };
 
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  $app.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+
+let dictation = null;
+window.claude?.use?.('dictation').then((d) => { dictation = d; }).catch(() => {});
+
 // 앱 상태 (메모리)
 const state = {
   genre: '인기',
@@ -34,11 +43,11 @@ function tabbar(active) {
   const t = (key, label, ic, href) =>
     `<a class="tab ${active === key ? 'on' : ''}" href="${href}">${ic}${label}</a>`;
   return `<nav class="tabbar" aria-label="하단 메뉴">
-    ${t('home', '홈', icon.home, '#/')}
-    ${t('search', '검색', icon.search().replace(/20/g, '22'), '#/search')}
-    <a class="fab" href="#/sing/${featured.id}" aria-label="노래 부르기">${icon.mic(26, 2)}</a>
-    ${t('mine', '내 노래', icon.note, '#/result')}
-    ${t('profile', '프로필', icon.user, '#/')}
+    ${t('home', '홈', icon.home, '#home')}
+    ${t('search', '검색', icon.search().replace(/20/g, '22'), '#search')}
+    <a class="fab" href="#sing-${featured.id}" aria-label="노래 부르기">${icon.mic(26, 2)}</a>
+    ${t('mine', '내 노래', icon.note, '#result')}
+    ${t('profile', '프로필', icon.user, '#home')}
   </nav>`;
 }
 
@@ -72,7 +81,7 @@ function renderHome() {
     </div>
 
     <div>
-      <div class="section-head"><h3>${state.genre === '인기' ? '실시간 인기 TOP' : esc(state.genre)}</h3><a class="muted" style="font-size:13px" href="#/search">전체 보기</a></div>
+      <div class="section-head"><h3>${state.genre === '인기' ? '실시간 인기 TOP' : esc(state.genre)}</h3><a class="muted" style="font-size:13px" href="#search">전체 보기</a></div>
       ${list.slice(0, 5).map((s, i) => `
         <button class="rank-row" data-sing="${s.id}">
           <div class="rank ${i === 0 ? 'top' : ''}">${i + 1}</div>
@@ -84,7 +93,7 @@ function renderHome() {
   </section>${tabbar('home')}`;
 
   $app.querySelectorAll('[data-genre]').forEach((b) => b.onclick = () => { state.genre = b.dataset.genre; renderHome(); });
-  $app.querySelectorAll('[data-sing]').forEach((b) => b.onclick = () => go(`/sing/${b.dataset.sing}`));
+  $app.querySelectorAll('[data-sing]').forEach((b) => b.onclick = () => go(`sing-${b.dataset.sing}`));
 }
 
 // ---------------------------------------------------------------- 02 검색
@@ -100,7 +109,7 @@ function highlight(text, q) {
 function renderSearch() {
   $app.innerHTML = `<section class="screen" style="gap:18px;padding-bottom:110px">
     <div class="topbar">
-      <a class="icon-btn" href="#/" aria-label="뒤로">${icon.back}</a>
+      <a class="icon-btn" href="#home" aria-label="뒤로">${icon.back}</a>
       <div style="font-size:20px;font-weight:700">곡 검색</div>
     </div>
     <div class="search-box">
@@ -157,13 +166,19 @@ function drawMini() {
   $m.innerHTML = `<div class="mini-player">
     <div class="art" style="width:48px;height:48px;border-radius:24px;${artBg(s)}"></div>
     <div style="flex:1;min-width:0"><div class="row-title" style="font-size:14px">${esc(s.title)}</div><div class="muted" style="font-size:12px">${esc(s.artist)} · ${fmt(s.durationSec)}</div></div>
-    <a class="accent-btn" href="#/sing/${s.id}">부르기</a>
+    <a class="accent-btn" href="#sing-${s.id}">부르기</a>
   </div>`;
 }
 
 function startVoiceSearch() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('이 브라우저는 음성 검색을 지원하지 않아요.'); return; }
+  // claude.ai 아티팩트 안에서는 dictation 기능을 우선 사용
+  if (dictation) {
+    dictation.onFinal(({ text }) => { state.query = text.trim(); renderSearch(); });
+    dictation.start().catch(() => toast('음성 검색을 쓸 수 없어요. 직접 입력해 주세요.'));
+    return;
+  }
+  if (!SR) { toast('이 브라우저는 음성 검색을 지원하지 않아요.'); return; }
   const r = new SR();
   r.lang = 'ko-KR';
   r.onresult = (e) => { state.query = e.results[0][0].transcript; renderSearch(); };
@@ -180,7 +195,7 @@ function renderSing(id) {
     <div class="glow" style="right:-120px;top:260px;width:340px;height:340px;background:radial-gradient(circle, rgba(255,92,138,.22), rgba(255,92,138,0) 70%)"></div>
 
     <div class="sing-top">
-      <a class="icon-btn glass" href="#/" aria-label="닫기">${icon.close}</a>
+      <a class="icon-btn glass" href="#home" aria-label="닫기">${icon.close}</a>
       <div style="flex:1;min-width:0;text-align:center">
         <div class="row-title" style="font-weight:700">${esc(song.title)}</div>
         <div style="font-size:12px;color:var(--muted-sing)">${esc(song.artist)} · ${esc(song.number)}</div>
@@ -349,7 +364,7 @@ function startSession(song) {
     const audioUrl = s.mic ? await s.mic.stop() : null;
     session = null;
     state.lastResult = { songId: s.song.id, ...sc, audioUrl, duration: s.t, demo: !s.mic };
-    go('/result');
+    go('result');
   }
 }
 
@@ -392,7 +407,7 @@ function renderResult() {
   if (!r) {
     $app.innerHTML = `<section class="screen with-nav">
       <div class="topbar"><div style="font-size:20px;font-weight:700">내 노래</div></div>
-      <div class="empty">아직 부른 노래가 없어요.<br><br><a class="accent-btn" style="display:inline-flex" href="#/search">곡 고르러 가기</a></div>
+      <div class="empty">아직 부른 노래가 없어요.<br><br><a class="accent-btn" style="display:inline-flex" href="#search">곡 고르러 가기</a></div>
     </section>${tabbar('mine')}`;
     return;
   }
@@ -404,7 +419,7 @@ function renderResult() {
 
   $app.innerHTML = `<section class="screen result">
     <div class="topbar between">
-      <a class="icon-btn" href="#/" aria-label="닫기">${icon.close}</a>
+      <a class="icon-btn" href="#home" aria-label="닫기">${icon.close}</a>
       <div class="row-title" style="font-weight:700">${esc(song.title)}</div>
       <div style="width:44px"></div>
     </div>
@@ -437,7 +452,7 @@ function renderResult() {
     </div>
 
     <div class="btn-row">
-      <a class="btn-ghost" href="#/sing/${song.id}">다시 부르기</a>
+      <a class="btn-ghost" href="#sing-${song.id}">다시 부르기</a>
       <button class="btn-accent" id="share" ${r.audioUrl ? '' : 'disabled'}>녹음 공유하기</button>
     </div>
   </section>`;
@@ -467,10 +482,10 @@ function renderResult() {
 // ---------------------------------------------------------------- 라우터
 function route() {
   if (session) { cancelAnimationFrame(session.raf); session.mic?.stop(); session = null; }
-  const [, page, id] = location.hash.replace(/^#/, '').split('/');
-  if (page === 'search') renderSearch();
-  else if (page === 'sing') renderSing(decodeURIComponent(id || ''));
-  else if (page === 'result') renderResult();
+  const h = decodeURIComponent(location.hash.replace(/^#/, ''));
+  if (h === 'search') renderSearch();
+  else if (h.startsWith('sing-')) renderSing(h.slice(5));
+  else if (h === 'result') renderResult();
   else renderHome();
 }
 window.addEventListener('hashchange', route);
